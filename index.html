@@ -12,6 +12,7 @@
             --text-color: #333333;
             --border-color: #cccccc;
             --alert-color: #d9534f;
+            --warning-color: #ffc107;
         }
 
         body {
@@ -92,7 +93,7 @@
             font-weight: normal;
             display: block;
             margin-top: 5px;
-            color: #555;
+            color: #333;
         }
 
         .volt-relation {
@@ -102,6 +103,13 @@
             margin-top: 5px;
             display: block;
             min-height: 20px;
+        }
+
+        /* Estado intermedio: dentro de la tolerancia */
+        .warning-margin {
+            background-color: #ffe8a1;
+            color: #856404;
+            border: 2px solid var(--warning-color);
         }
 
         /* Animación de sobrecarga / quemado */
@@ -141,7 +149,6 @@
             background-color: #5a6268;
         }
 
-        /* Ajustes para móviles */
         @media (max-width: 600px) {
             .row { flex-direction: column; }
         }
@@ -165,8 +172,12 @@
                 </select>
             </div>
             <div class="col">
-                <label for="moldeMaxPower">Límite de Potencia (W) antes de quemarse</label>
+                <label for="moldeMaxPower">Límite de Potencia Teórica (W)</label>
                 <input type="number" id="moldeMaxPower" value="2000" step="100" oninput="calcularMolde()">
+            </div>
+            <div class="col">
+                <label for="moldeTolerance">Tolerancia Admisible (+%)</label>
+                <input type="number" id="moldeTolerance" value="3.0" step="0.1" min="0" oninput="calcularMolde()">
             </div>
         </div>
 
@@ -183,7 +194,7 @@
 
         <div id="moldeResultBox" class="result-box">
             Potencia: <span id="moldePotenciaOut">0</span> W
-            <span class="result-details" id="moldeStatusOut">Estado: Operación Normal</span>
+            <span class="result-details" id="moldeStatusOut">Estado: Inicializando...</span>
         </div>
     </div>
 
@@ -255,24 +266,41 @@
         const v = parseFloat(document.getElementById('moldeTension').value);
         const r = parseFloat(document.getElementById('moldeResistencia').value);
         const pMax = parseFloat(document.getElementById('moldeMaxPower').value);
+        const tol = parseFloat(document.getElementById('moldeTolerance').value);
         
         document.getElementById('tensionDisplay').innerText = v;
 
-        if (isNaN(v) || isNaN(r) || r <= 0) return;
+        if (isNaN(v) || isNaN(r) || r <= 0 || isNaN(pMax)) return;
 
+        // Ecuación fundamental P = V^2 / R
         const p = Math.pow(v, 2) / r;
+        
+        // Tolerancia límite superior (Ej: 2000W * 1.03 = 2060W)
+        const tolFactor = isNaN(tol) ? 0 : tol / 100;
+        const pMaxEffective = pMax * (1 + tolFactor);
         
         const resultBox = document.getElementById('moldeResultBox');
         const statusOut = document.getElementById('moldeStatusOut');
         
         document.getElementById('moldePotenciaOut').innerText = p.toFixed(2);
 
-        if (p > pMax) {
+        // Resetear estilos visuales antes de evaluar
+        resultBox.classList.remove('overload', 'warning-margin');
+
+        if (p > pMaxEffective) {
+            // Estado 3: Superó el límite + el margen de tolerancia -> Falla catastrófica
+            const pctOver = ((p - pMax) / pMax) * 100;
             resultBox.classList.add('overload');
-            statusOut.innerText = "¡ADVERTENCIA: Límite superado! Riesgo de quemar la resistencia.";
+            statusOut.innerText = `¡CRÍTICO: Resistencia Quemada! Excede el valor teórico en un ${pctOver.toFixed(2)}% (Límite de tolerancia de +${tol}% superado).`;
+        } else if (p > pMax) {
+            // Estado 2: Superó el valor de diseño pero se mantiene en la zona de tolerancia física
+            const pctOver = ((p - pMax) / pMax) * 100;
+            resultBox.classList.add('warning-margin');
+            statusOut.innerText = `Precaución: Excediendo valor teórico en un ${pctOver.toFixed(2)}% (Dentro del margen admisible de +${tol}%).`;
         } else {
-            resultBox.classList.remove('overload');
-            statusOut.innerText = "Estado: Operación Normal (Dentro de los límites)";
+            // Estado 1: Operación segura bajo el límite de placa
+            const pctLoad = (p / pMax) * 100;
+            statusOut.innerText = `Estado: Operación Normal (Trabajando al ${pctLoad.toFixed(1)}% de la capacidad teórica de placa)`;
         }
     }
 
@@ -320,11 +348,9 @@
             return;
         }
 
-        // Factor de sistema
         let k = (sys === 'trifasico') ? Math.sqrt(3) : 1;
         let pMult = (sys === 'trifasico') ? 3 : 1; 
 
-        // Despejes matemáticos cruzados
         if (!isNaN(v) && !isNaN(i)) {
             p = k * v * i * fp;
             r = (v / (sys === 'trifasico' ? Math.sqrt(3) : 1)) / i;
@@ -347,17 +373,14 @@
             v = (sys === 'trifasico') ? v_ln * Math.sqrt(3) : v_ln;
         }
 
-        // Asignación de resultados a los campos
         document.getElementById('ohmVolt').value = v.toFixed(2);
         document.getElementById('ohmCurr').value = i.toFixed(2);
         document.getElementById('ohmRes').value = r.toFixed(2);
         document.getElementById('ohmPow').value = p.toFixed(2);
         
-        // Cálculo de VA
         let s = p / fp;
         document.getElementById('ohmVA').value = s.toFixed(2);
 
-        // Actualizar la relación de tensión debajo del input
         recalcularRelacion();
     }
 

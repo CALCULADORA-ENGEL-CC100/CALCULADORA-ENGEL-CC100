@@ -95,6 +95,15 @@
             color: #555;
         }
 
+        .volt-relation {
+            font-size: 0.85em;
+            color: var(--primary-color);
+            font-weight: bold;
+            margin-top: 5px;
+            display: block;
+            min-height: 20px;
+        }
+
         /* Animación de sobrecarga / quemado */
         @keyframes burnEffect {
             0% { background-color: #ffcccc; box-shadow: 0 0 10px red; color: #900; }
@@ -179,13 +188,24 @@
     </div>
 
     <div class="section">
-        <h2>Calculadora de Ley de Ohm</h2>
-        <p>Ingresa al menos <strong>dos valores</strong> para calcular el resto.</p>
+        <h2>Calculadora de Ley de Ohm y Potencia</h2>
+        <p>Selecciona el tipo de sistema e ingresa al menos <strong>dos valores</strong> para calcular el resto.</p>
+
+        <div class="row">
+            <div class="col">
+                <label for="ohmSistema">Tipo de Sistema</label>
+                <select id="ohmSistema" onchange="recalcularRelacion()">
+                    <option value="monofasico" selected>Monofásico</option>
+                    <option value="trifasico">Trifásico (Equilibrado)</option>
+                </select>
+            </div>
+        </div>
         
         <div class="row">
             <div class="col">
-                <label for="ohmVolt">Tensión (V) en Volts</label>
-                <input type="number" id="ohmVolt" placeholder="Ej: 230">
+                <label for="ohmVolt">Tensión (V) en Volts <span style="font-weight: normal; font-size: 0.8em;">(Línea-Línea si es Trifásico)</span></label>
+                <input type="number" id="ohmVolt" placeholder="Ej: 400" oninput="recalcularRelacion()">
+                <span id="voltRelationDisplay" class="volt-relation"></span>
             </div>
             <div class="col">
                 <label for="ohmCurr">Corriente (I) en Amperios</label>
@@ -195,11 +215,11 @@
 
         <div class="row">
             <div class="col">
-                <label for="ohmRes">Resistencia (R) en Ohmios</label>
+                <label for="ohmRes">Resistencia Equivalente (R) en Ohmios</label>
                 <input type="number" id="ohmRes" placeholder="Ej: 23">
             </div>
             <div class="col">
-                <label for="ohmPow">Potencia (P) en Watts</label>
+                <label for="ohmPow">Potencia Activa (P) en Watts</label>
                 <input type="number" id="ohmPow" placeholder="Ej: 2300">
             </div>
         </div>
@@ -221,14 +241,13 @@
 </div>
 
 <script>
-    // --- LOGICA PARA LA CALCULADORA DE MOLDE ---
+    // --- LÓGICA PARA LA CALCULADORA DE MOLDE ---
     function actualizarTensionBase() {
         const baseVolt = document.getElementById('moldeBaseVolt').value;
         const tensionSlider = document.getElementById('moldeTension');
         
-        // Ajustar el slider a la tensión nominal y definir un rango razonable
         tensionSlider.value = baseVolt;
-        tensionSlider.max = Math.ceil(baseVolt * 1.5); // Permitir un 50% por encima para probar picos
+        tensionSlider.max = Math.ceil(baseVolt * 1.5); 
         calcularMolde();
     }
 
@@ -241,7 +260,6 @@
 
         if (isNaN(v) || isNaN(r) || r <= 0) return;
 
-        // Ecuación P = V^2 / R
         const p = Math.pow(v, 2) / r;
         
         const resultBox = document.getElementById('moldeResultBox');
@@ -249,7 +267,6 @@
         
         document.getElementById('moldePotenciaOut').innerText = p.toFixed(2);
 
-        // Lógica de animación
         if (p > pMax) {
             resultBox.classList.add('overload');
             statusOut.innerText = "¡ADVERTENCIA: Límite superado! Riesgo de quemar la resistencia.";
@@ -259,18 +276,36 @@
         }
     }
 
-    // Inicializar la calculadora de molde al cargar
     window.onload = function() {
         calcularMolde();
     };
 
-    // --- LOGICA PARA LA CALCULADORA DE LEY DE OHM ---
+    // --- LÓGICA PARA LA CALCULADORA MÚLTIPLE (1F / 3F) ---
+    function recalcularRelacion() {
+        const v = parseFloat(document.getElementById('ohmVolt').value);
+        const sys = document.getElementById('ohmSistema').value;
+        const display = document.getElementById('voltRelationDisplay');
+
+        if (isNaN(v)) {
+            display.innerText = "";
+            return;
+        }
+
+        if (sys === 'trifasico') {
+            const v_ln = v / Math.sqrt(3);
+            display.innerText = `Equivalencia L-N (Fase-Neutro): ${v_ln.toFixed(2)} V`;
+        } else {
+            display.innerText = `Sistema Monofásico: V = V L-N`;
+        }
+    }
+
     function calcularOhm() {
         let v = parseFloat(document.getElementById('ohmVolt').value);
         let i = parseFloat(document.getElementById('ohmCurr').value);
         let r = parseFloat(document.getElementById('ohmRes').value);
         let p = parseFloat(document.getElementById('ohmPow').value);
         let fp = parseFloat(document.getElementById('ohmFP').value);
+        let sys = document.getElementById('ohmSistema').value;
 
         if (isNaN(fp) || fp <= 0 || fp > 1) { fp = 1; document.getElementById('ohmFP').value = 1; }
 
@@ -285,36 +320,45 @@
             return;
         }
 
-        // Cálculos cruzados
+        // Factor de sistema
+        let k = (sys === 'trifasico') ? Math.sqrt(3) : 1;
+        let pMult = (sys === 'trifasico') ? 3 : 1; 
+
+        // Despejes matemáticos cruzados
         if (!isNaN(v) && !isNaN(i)) {
-            r = v / i;
-            p = v * i;
+            p = k * v * i * fp;
+            r = (v / (sys === 'trifasico' ? Math.sqrt(3) : 1)) / i;
         } else if (!isNaN(v) && !isNaN(r)) {
-            i = v / r;
-            p = (v * v) / r;
+            i = (v / (sys === 'trifasico' ? Math.sqrt(3) : 1)) / r;
+            p = k * v * i * fp;
         } else if (!isNaN(v) && !isNaN(p)) {
-            i = p / v;
-            r = (v * v) / p;
+            i = p / (k * v * fp);
+            r = (v / (sys === 'trifasico' ? Math.sqrt(3) : 1)) / i;
         } else if (!isNaN(i) && !isNaN(r)) {
-            v = i * r;
-            p = i * i * r;
+            let v_ln = i * r;
+            v = (sys === 'trifasico') ? v_ln * Math.sqrt(3) : v_ln;
+            p = k * v * i * fp;
         } else if (!isNaN(i) && !isNaN(p)) {
-            v = p / i;
-            r = p / (i * i);
+            v = p / (k * i * fp);
+            r = (v / (sys === 'trifasico' ? Math.sqrt(3) : 1)) / i;
         } else if (!isNaN(r) && !isNaN(p)) {
-            v = Math.sqrt(p * r);
-            i = Math.sqrt(p / r);
+            i = Math.sqrt(p / (pMult * r * fp));
+            let v_ln = i * r;
+            v = (sys === 'trifasico') ? v_ln * Math.sqrt(3) : v_ln;
         }
 
-        // Escribir resultados
+        // Asignación de resultados a los campos
         document.getElementById('ohmVolt').value = v.toFixed(2);
         document.getElementById('ohmCurr').value = i.toFixed(2);
         document.getElementById('ohmRes').value = r.toFixed(2);
         document.getElementById('ohmPow').value = p.toFixed(2);
         
-        // Cálculo de VA (Potencia Aparente S = P / FP)
+        // Cálculo de VA
         let s = p / fp;
         document.getElementById('ohmVA').value = s.toFixed(2);
+
+        // Actualizar la relación de tensión debajo del input
+        recalcularRelacion();
     }
 
     function limpiarOhm() {
@@ -324,6 +368,7 @@
         document.getElementById('ohmPow').value = '';
         document.getElementById('ohmVA').value = '';
         document.getElementById('ohmFP').value = '1.0';
+        document.getElementById('voltRelationDisplay').innerText = '';
     }
 </script>
 
